@@ -6,7 +6,7 @@ import io
 import os
 from dotenv import load_dotenv
 
-# Load environment variables from a .env file if it exists
+# Load environment variables
 load_dotenv()
 
 # --- Session State Initialization ---
@@ -22,12 +22,14 @@ if "final_image_url" not in st.session_state:
     st.session_state.final_image_url = None
 if "generated_image_bytes" not in st.session_state:
     st.session_state.generated_image_bytes = None
+if "last_api_response" not in st.session_state:
+    st.session_state.last_api_response = None
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Napkin AI Visual Generator", page_icon="🖼️", layout="wide")
 st.title("🖼️ Napkin AI Visual Generator")
 
-# --- API Functions ---
+# --- API Functions (Unchanged) ---
 
 def start_image_generation_job(prompt_text, api_key, width, height, context_before=None, context_after=None):
     url = "https://api.napkin.ai/v1/visual"
@@ -94,10 +96,9 @@ elif st.session_state.step == "prompt":
         if st.button("1. Submit Generation Job", type="primary"):
             if prompt and st.session_state.api_key:
                 with st.spinner("Submitting job to Napkin AI..."):
-                    st.session_state.job_id = None
-                    st.session_state.job_status_message = None
-                    st.session_state.final_image_url = None
-                    st.session_state.generated_image_bytes = None
+                    # Clear out all old results
+                    for key in ["job_id", "job_status_message", "final_image_url", "generated_image_bytes", "last_api_response"]:
+                        st.session_state[key] = None
                     response = start_image_generation_job(
                         prompt, st.session_state.api_key, width, height, context_before, context_after
                     )
@@ -115,19 +116,28 @@ elif st.session_state.step == "prompt":
             if st.button("2. Check Status / Get Image"):
                 with st.spinner(f"Checking status for Job ID: {st.session_state.job_id}..."):
                     status_data = get_job_status(st.session_state.job_id, st.session_state.api_key)
+                    st.session_state.last_api_response = status_data # Store the response for debugging
+
                     if status_data:
                         job_status = status_data.get("status", "unknown")
                         st.session_state.job_status_message = f"Job Status: '{job_status.capitalize()}'"
                         
-                        # --- THE CRITICAL FIX IS HERE ---
-                        # Convert to lowercase to handle "complete" and "Completed"
+                        # --- NEW ROBUST CHECKING LOGIC ---
                         if job_status.lower() == "complete":
-                            st.balloons()
-                            image_url = status_data["generated_files"][0]["url"]
-                            st.session_state.final_image_url = image_url
-                            image_bytes = download_final_image(image_url)
-                            if image_bytes:
-                                st.session_state.generated_image_bytes = image_bytes
+                            # Defensively check if the 'generated_files' key exists and is a non-empty list
+                            if "generated_files" in status_data and isinstance(status_data["generated_files"], list) and len(status_data["generated_files"]) > 0:
+                                # Defensively get the URL from the first item in the list
+                                image_url = status_data["generated_files"][0].get("url")
+                                if image_url:
+                                    st.balloons()
+                                    st.session_state.final_image_url = image_url
+                                    image_bytes = download_final_image(image_url)
+                                    if image_bytes:
+                                        st.session_state.generated_image_bytes = image_bytes
+                                else:
+                                    st.session_state.job_status_message = "❌ Error: Job is complete, but no URL was found in the response."
+                            else:
+                                st.session_state.job_status_message = "❌ Error: Job is complete, but the 'generated_files' data is missing or empty."
                 st.rerun()
 
     with right_col:
@@ -146,3 +156,8 @@ elif st.session_state.step == "prompt":
             st.info("Once the job is complete, your image will appear here.")
         else:
             st.info("Submit a job to see the result.")
+
+        # --- NEW DEBUGGING OUTPUT ---
+        if st.session_state.last_api_response:
+            with st.expander("Last API Response from Server (for debugging)"):
+                st.json(st.session_state.last_api_response)
