@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import time
 from PIL import Image
 import io
 import os
@@ -155,58 +156,48 @@ elif st.session_state.step == "prompt":
             selected_style_index = style_names.index(selected_style_name)
             style = style_options[selected_style_index]["id"]
             
-            # Additional API parameters
-            st.subheader("Additional Parameters")
-            
-            # Visual Type Hint
-            st.write("Optional: Guide the AI to generate a specific type of visual")
-            visual_type = st.selectbox(
-                "Visual Type Hint", 
-                options=[
-                    "None (Let AI decide)",
-                    "Chart/Graph",
-                    "Diagram",
-                    "Flowchart",
-                    "Mind Map",
-                    "Timeline",
-                    "Comparison",
-                    "Infographic",
-                    "Process"
-                ],
-                index=0
+        # Debugging section
+        with st.expander("API Debugging"):
+            st.info("If you're having API issues, you can try different authorization formats here.")
+            auth_format = st.radio(
+                "Authorization Format",
+                ["Raw Key", "Bearer Token", "API Key Header"],
+                index=0,
+                help="Try different authorization formats if you're getting 401 Unauthorized errors"
             )
             
-            # Add settings for background and color theme
-            col1, col2 = st.columns(2)
-            with col1:
-                background_color = st.color_picker("Background Color", "#FFFFFF")
-            with col2:
-                color_theme = st.selectbox(
-                    "Color Theme",
-                    options=[
-                        "Default",
-                        "Vibrant",
-                        "Pastel",
-                        "Monochrome",
-                        "Dark",
-                        "Light",
-                        "Corporate"
-                    ],
-                    index=0
-                )
+            if auth_format == "Raw Key":
+                st.code("Authorization: YOUR_API_KEY")
+            elif auth_format == "Bearer Token":
+                st.code("Authorization: Bearer YOUR_API_KEY")
+            else:
+                st.code("X-API-Key: YOUR_API_KEY")
+                
+            st.session_state.auth_format = auth_format
         
         if st.button("Generate Image"):
             if not prompt:
                 st.error("Please enter a prompt for your image.")
             else:
                 with st.spinner("Generating your image..."):
-                    # Make API call with only essential parameters
+                    # Make API call with proper format
                     result = generate_image(
                         prompt_text=prompt,
                         api_key=st.session_state.api_key,
                         aspect=aspect_ratio,
                         style=style
                     )
+                    
+                    if result and 'imageData' in result:
+                        # Display success message
+                        st.success("Image generated successfully!")
+                        
+                        # Display the image
+                        image = Image.open(io.BytesIO(result['imageData']))
+                        st.session_state.generated_image = result['imageData']
+                        st.session_state.image_url = result['imageUrl']
+                        st.session_state.api_response = result
+                        st.rerun()
                     
                     if result and "imageUrl" in result:
                         # Get image from URL
