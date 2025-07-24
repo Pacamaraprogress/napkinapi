@@ -252,7 +252,7 @@ elif st.session_state.step == "prompt":
                                 # Also display the image
                                 try:
                                     image = Image.open(io.BytesIO(image_data))
-                                    st.image(image, caption="Successfully downloaded image", use_column_width=True)
+                                    st.image(image, caption="Successfully downloaded image", use_container_width=True)
                                     st.session_state.job["image_bytes"] = image_data  # Store it in session state
                                     status.update(label="✅ Download successful!", state="complete")
                                 except Exception as e:
@@ -274,7 +274,7 @@ elif st.session_state.step == "prompt":
         if st.session_state.job.get("image_bytes"):
             try:
                 image = Image.open(io.BytesIO(st.session_state.job["image_bytes"]))
-                st.image(image, caption="Generated Image", use_column_width=True)
+                st.image(image, caption="Generated Image", use_container_width=True)
                 
                 # Add download button for the automatically downloaded image
                 btn = st.download_button(
