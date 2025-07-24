@@ -5,15 +5,15 @@ import io
 import os
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from a .env file if it exists
 load_dotenv()
 
 # --- Session State Initialization ---
-# A clean dictionary to hold all job-related state.
 if "job" not in st.session_state:
     st.session_state.job = {
         "id": None,
         "status_message": None,
+        "final_image_url": None,
         "image_bytes": None,
         "last_api_response": None,
         "error": None
@@ -28,7 +28,6 @@ st.set_page_config(page_title="Napkin AI Visual Generator", page_icon="🖼️",
 st.title("🖼️ Napkin AI Visual Generator")
 
 # --- API Functions ---
-
 def start_image_generation_job(api_key, payload):
     """Submits the job and returns the server's response."""
     url = "https://api.napkin.ai/v1/visual"
@@ -53,28 +52,22 @@ def get_job_status(job_id, api_key):
         st.session_state.job["error"] = f"API Error Checking Status: {e}"
         return None
 
-# --- THE CORRECTED AND AUTHORIZED DOWNLOAD MODULE ---
-def download_from_dedicated_endpoint(job_id, api_key):
-    """
-    Downloads the image from the correct, dedicated download endpoint,
-    providing the required Authorization header.
-    """
-    # This is the dedicated download URL you provided.
-    # We pass the job_id as a query parameter.
-    download_url = f"https://api.napkin.ai/api/download-visual-file?visualId={job_id}"
+def download_image_with_authorization(image_url, api_key):
+    """Downloads the image from a protected URL with proper authorization."""
+    st.session_state.job["status_message"] = f"Authorization required. Attempting to download..."
     
-    st.session_state.job["status_message"] = f"Attempting authorized download from dedicated endpoint..."
-    
-    # The required header to authenticate this download request
     headers = {"Authorization": f"Bearer {api_key}"}
     
     try:
-        with st.spinner(f"Downloading from dedicated endpoint for Job ID: {job_id}..."):
-            response = requests.get(download_url, headers=headers, timeout=90)
-            response.raise_for_status()
+        response = requests.get(image_url, headers=headers, timeout=90)
+        response.raise_for_status()
         return response.content
+        
     except requests.exceptions.HTTPError as e:
-        st.session_state.job["error"] = f"Download Failed: Server returned status {e.response.status_code}. Check if the download endpoint is correct."
+        if e.response.status_code == 401:
+            st.session_state.job["error"] = "Download Failed: 401 Unauthorized. The API key was rejected by the server for the download."
+        else:
+            st.session_state.job["error"] = f"Download Failed: Server returned status {e.response.status_code}."
         return None
     except requests.exceptions.RequestException as e:
         st.session_state.job["error"] = f"Download Error: {e}"
@@ -104,19 +97,38 @@ elif st.session_state.step == "prompt":
         prompt = st.text_area("Main Content:", height=150)
         context_before = st.text_input("Context Before (Optional):")
         context_after = st.text_input("Context After (Optional):")
-        st.subheader("Image Dimensions")
-        width = st.number_input("Width", 256, 2048, 1200, 64)
-        height = st.number_input("Height", 256, 2048, 800, 64)
+        
+        # Advanced options in an expander
+        with st.expander("Advanced Options"):
+            col1, col2 = st.columns(2)
+            with col1:
+                width = st.number_input("Width", 256, 2048, 1200, 64)
+            with col2:
+                height = st.number_input("Height", 256, 2048, 800, 64)
+                
+            transparent_bg = st.checkbox("Transparent Background", value=True)
+            file_format = st.selectbox("Format", ["png", "jpg"], index=0)
 
         if st.button("1. Submit Generation Job", type="primary"):
             if prompt and st.session_state.api_key:
                 with st.spinner("Submitting job to Napkin AI..."):
                     st.session_state.job = {k: None for k in st.session_state.job}
                     payload = {
-                        "content": prompt, "number_of_visuals": 1, "format": "png",
-                        "width": width, "height": height, "language": "en-US", "transparent_background": True,
-                        "context_before": context_before, "context_after": context_after
+                        "content": prompt,
+                        "number_of_visuals": 1,
+                        "format": file_format,
+                        "width": width,
+                        "height": height,
+                        "language": "en-US",
+                        "transparent_background": transparent_bg
                     }
+                    
+                    # Add optional parameters only if they exist
+                    if context_before:
+                        payload["context_before"] = context_before
+                    if context_after:
+                        payload["context_after"] = context_after
+                        
                     response = start_image_generation_job(st.session_state.api_key, payload)
                     if response and response.get("id"):
                         st.session_state.job["id"] = response["id"]
@@ -131,9 +143,7 @@ elif st.session_state.step == "prompt":
             st.info(st.session_state.job.get("status_message", "No status yet."))
             if st.button("2. Check Status / Get Image"):
                 with st.spinner(f"Checking status for Job ID: {st.session_state.job['id']}..."):
-                    job_id = st.session_state.job['id']
-                    api_key = st.session_state.api_key
-                    status_data = get_job_status(job_id, api_key)
+                    status_data = get_job_status(st.session_state.job['id'], st.session_state.api_key)
                     st.session_state.job["last_api_response"] = status_data
 
                     if status_data:
@@ -141,27 +151,43 @@ elif st.session_state.step == "prompt":
                         st.session_state.job["status_message"] = f"Job Status: '{job_status.capitalize()}'"
                         
                         if job_status.lower() == "complete":
-                            st.session_state.job["status_message"] = "✅ Job Complete! Now downloading..."
-                            # --- Calling the CORRECT Authorized Download Module ---
-                            image_bytes = download_from_dedicated_endpoint(job_id, api_key)
-                            if image_bytes:
-                                st.session_state.job["image_bytes"] = image_bytes
-                                st.session_state.job["status_message"] = "✅ Download successful!"
-                                st.balloons()
+                            files = status_data.get("generated_files")
+                            if files and isinstance(files, list) and len(files) > 0:
+                                image_url = files[0].get("url")
+                                if image_url:
+                                    st.session_state.job["final_image_url"] = image_url
+                                    image_bytes = download_image_with_authorization(image_url, st.session_state.api_key)
+                                    if image_bytes:
+                                        st.session_state.job["image_bytes"] = image_bytes
+                                        st.session_state.job["status_message"] = "✅ Download successful!"
+                                        st.balloons()
                 st.rerun()
 
     # --- Right Column (Outputs) ---
     with right_col:
         st.subheader("Result")
         
+        if st.session_state.job.get("final_image_url"):
+            st.markdown("**Image URL (for reference only):**")
+            st.code(st.session_state.job["final_image_url"], language=None)
+        
         if st.session_state.job.get("image_bytes"):
             try:
                 image = Image.open(io.BytesIO(st.session_state.job["image_bytes"]))
-                st.image(image, caption="Final Generated Image", use_column_width=True)
+                st.image(image, caption="Generated Image", use_column_width=True)
+                
+                # Add download button
+                btn = st.download_button(
+                    label="Download Image",
+                    data=st.session_state.job["image_bytes"],
+                    file_name=f"napkin-ai-image.png",
+                    mime="image/png",
+                )
+                
             except Exception as e:
                 st.session_state.job["error"] = f"Could not display image: {e}"
         elif st.session_state.job.get("id"):
-            st.info("Once the job is complete, the image will appear here.")
+            st.info("Once the job is complete, the image and link will appear here.")
         else:
             st.info("Submit a job on the left to see the result.")
 
@@ -171,3 +197,14 @@ elif st.session_state.step == "prompt":
         if st.session_state.job.get("last_api_response"):
             with st.expander("Last Raw API Response from Server"):
                 st.json(st.session_state.job["last_api_response"])
+
+# Add footer with instructions
+st.markdown("---")
+st.markdown("""
+### How to use
+1. Enter your Napkin AI API key
+2. Enter your image prompt and any optional context
+3. Click "Submit Generation Job" to start the process
+4. Use "Check Status / Get Image" to monitor and retrieve your image
+5. Once complete, you can view and download your generated image
+""")
