@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Session State Initialization ---
-# Using a dictionary for our job state is cleaner
+# Using a dictionary for our job state is cleaner and avoids clutter
 if "job" not in st.session_state:
     st.session_state.job = {
         "id": None,
@@ -23,7 +23,6 @@ if "api_key" not in st.session_state:
     st.session_state.api_key = os.getenv("NAPKIN_API_KEY", "")
 if "step" not in st.session_state:
     st.session_state.step = "api_key"
-
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Napkin AI Visual Generator", page_icon="🖼️", layout="wide")
@@ -61,11 +60,14 @@ def get_job_status(job_id, api_key):
         st.error(f"API Error Checking Status: {e}")
         return None
 
-def download_final_image(image_url):
-    """Downloads the final image from its URL."""
+# --- CRITICAL FIX #1: This function now sends the Authorization header ---
+def download_final_image(image_url, api_key):
+    """Downloads the final image from its URL, providing authorization."""
+    headers = {"Authorization": f"Bearer {api_key}"}
     try:
-        response = requests.get(image_url, timeout=90) # Increased timeout for large images
-        response.raise_for_status()
+        with st.spinner("Downloading final image (this may take a moment)..."):
+            response = requests.get(image_url, headers=headers, timeout=90)
+            response.raise_for_status()
         return response.content
     except requests.exceptions.RequestException as e:
         st.error(f"Download Error: {e}")
@@ -95,11 +97,9 @@ elif st.session_state.step == "prompt":
         width = st.number_input("Width", 256, 2048, 1200, 64)
         height = st.number_input("Height", 256, 2048, 800, 64)
 
-        # --- Button to start the whole process ---
         if st.button("1. Submit Generation Job", type="primary"):
             if prompt and st.session_state.api_key:
                 with st.spinner("Submitting job to Napkin AI..."):
-                    # Clear previous job state
                     st.session_state.job = {k: None for k in st.session_state.job}
                     response = start_image_generation_job(
                         prompt, st.session_state.api_key, width, height, context_before, context_after
@@ -113,7 +113,6 @@ elif st.session_state.step == "prompt":
             else:
                 st.error("Please provide a prompt and ensure your API key is set.")
 
-        # --- Section for checking status ---
         if st.session_state.job["id"]:
             st.info(st.session_state.job["status_message"])
             if st.button("2. Check Status / Get Image"):
@@ -125,14 +124,14 @@ elif st.session_state.step == "prompt":
                         job_status = status_data.get("status", "unknown")
                         st.session_state.job["status_message"] = f"Job Status: '{job_status.capitalize()}'"
                         
-                        # The robust check for a completed job
                         if job_status.lower() == "complete":
                             st.session_state.job["status_message"] = "✅ Job Complete! Found image data."
                             if "generated_files" in status_data and isinstance(status_data["generated_files"], list) and len(status_data["generated_files"]) > 0:
                                 image_url = status_data["generated_files"][0].get("url")
                                 if image_url:
                                     st.session_state.job["final_image_url"] = image_url
-                                    image_bytes = download_final_image(image_url)
+                                    # --- CRITICAL FIX #1 (cont.): Pass the api_key to the download function ---
+                                    image_bytes = download_final_image(image_url, st.session_state.api_key)
                                     if image_bytes:
                                         st.session_state.job["image_bytes"] = image_bytes
                                         st.session_state.job["status_message"] = "✅ Download successful!"
@@ -140,13 +139,15 @@ elif st.session_state.step == "prompt":
                                     else:
                                         st.session_state.job["status_message"] = "❌ Download failed. Please use the link on the right."
                                 else:
-                                    st.session_state.job["status_message"] = "❌ Error: Job complete, but no URL was found in the response."
+                                    st.session_state.job["status_message"] = "❌ Error: Job complete, but no URL was found."
                             else:
                                 st.session_state.job["status_message"] = "❌ Error: Job complete, but 'generated_files' data is missing."
                 st.rerun()
 
+    # --- CRITICAL FIX #2: This whole section is re-structured to prevent syntax errors ---
     with right_col:
         st.subheader("Result")
+        
         # Display the URL as soon as we have it
         if st.session_state.job["final_image_url"]:
             st.markdown("**Image URL:**")
