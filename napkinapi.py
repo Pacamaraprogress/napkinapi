@@ -30,6 +30,7 @@ st.title("🖼️ Napkin AI Visual Generator")
 # --- API Functions ---
 
 def start_image_generation_job(prompt_text, api_key, width, height, context_before=None, context_after=None):
+    """Step 1: Sends the request to start the job."""
     url = "https://api.napkin.ai/v1/visual"
     payload = {
         "content": prompt_text, "number_of_visuals": 1, "format": "png",
@@ -53,31 +54,30 @@ def start_image_generation_job(prompt_text, api_key, width, height, context_befo
         st.session_state.generating = False
         return None
 
-# --- THIS FUNCTION IS THE PRIMARY FIX ---
 def check_job_status(job_id, api_key):
+    """
+    Step 2: Polls the job status with an increased timeout and a running timer.
+    """
     status_url = f"https://api.napkin.ai/v1/visual/{job_id}/status"
     headers = {"Authorization": f"Bearer {api_key}"}
     
-    # INCREASED TIMEOUT from 120 to 240 seconds (4 minutes)
+    # 1. Increase the timeout to 4 minutes (240 seconds)
     max_wait_time = 240 
     start_time = time.time()
 
-    # Create an expander to show a live log of the API status
-    log_expander = st.expander("Show Live API Status Log")
-    
     with st.status("✅ Request sent! Waiting for Napkin AI...", expanded=True) as status:
         while time.time() - start_time < max_wait_time:
             try:
+                # 2. Add an elapsed time calculation
+                elapsed_time = int(time.time() - start_time)
+                
                 response = requests.get(status_url, headers=headers)
                 response.raise_for_status()
                 status_data = response.json()
-                
-                # Write the full server response to the live log expander
-                with log_expander:
-                    st.write(status_data)
-                
                 job_status = status_data.get("status", "unknown")
-                status.update(label=f"AI Status: '{job_status.capitalize()}'...")
+
+                # 3. Update the status label with the running timer
+                status.update(label=f"AI Status: '{job_status.capitalize()}'... (Elapsed: {elapsed_time}s)")
 
                 if job_status == "complete":
                     status.update(label="✅ Visual Created!", state="complete", expanded=False)
@@ -93,13 +93,11 @@ def check_job_status(job_id, api_key):
                 status.update(label=f"API Error while checking status: {e}", state="error")
                 return None
         
-        status.update(
-            label="Timeout reached after 4 minutes. The server may be busy or the request is very complex. Try a simpler prompt.", 
-            state="error"
-        )
+        status.update(label=f"Timeout after {max_wait_time} seconds. The job took too long.", state="error")
         return None
 
 def download_final_image(image_url):
+    """Step 3: Downloads the final image data."""
     try:
         response = requests.get(image_url, timeout=60)
         response.raise_for_status()
@@ -108,11 +106,13 @@ def download_final_image(image_url):
         st.error(f"Error downloading the final image: {str(e)}")
         return None
 
-# --- STREAMLIT UI LOGIC ---
+# --- STREAMLIT UI LOGIC (Unchanged from the previous version) ---
+
 if st.session_state.step == "api_key":
     st.write("Please enter your Napkin AI API key to get started.")
     api_key_input = st.text_input(
-        "Napkin AI API Key:", value=st.session_state.api_key, type="password"
+        "Napkin AI API Key:", value=st.session_state.api_key, type="password",
+        help="Your secret API key from the Napkin AI dashboard."
     )
     if st.button("Continue", type="primary"):
         if not api_key_input:
@@ -126,10 +126,13 @@ elif st.session_state.step == "prompt":
     left_col, right_col = st.columns([1, 1])
     with left_col:
         st.subheader("Visual Content")
-        prompt = st.text_area("Main Content:", height=150)
+        prompt = st.text_area(
+            "Main Content:", height=150,
+            placeholder="A detailed description of the visual you want to create."
+        )
         st.subheader("Optional Context")
-        context_before = st.text_input("Context Before (e.g., a title):")
-        context_after = st.text_input("Context After (e.g., a slogan):")
+        context_before = st.text_input("Context Before (e.g., a title or brand name):")
+        context_after = st.text_input("Context After (e.g., a subtitle or slogan):")
         st.subheader("Image Dimensions")
         col1, col2 = st.columns(2)
         with col1:
@@ -142,7 +145,6 @@ elif st.session_state.step == "prompt":
                 st.error("Please enter the main content.")
             else:
                 st.session_state.generating = True
-                st.session_state.generated_image_bytes = None # Clear previous image
                 initial_response = start_image_generation_job(
                     prompt, st.session_state.api_key, width, height, context_before, context_after
                 )
@@ -171,4 +173,4 @@ elif st.session_state.step == "prompt":
             except Exception as e:
                 st.error(f"Could not display the image. Error: {e}")
         else:
-            st.info("Your generated visual will appear here.")```
+            st.info("Your generated visual will appear here.")
