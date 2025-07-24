@@ -200,16 +200,12 @@ elif st.session_state.step == "prompt":
                 st.error("Please enter a prompt for your image.")
             else:
                 with st.spinner("Generating your image..."):
-                    # Get visual type setting
-                    visual_type_param = None if visual_type == "None (Let AI decide)" else visual_type
-                    
-                    # Make API call with essential parameters
+                    # Make API call with only essential parameters
                     result = generate_image(
                         prompt_text=prompt,
                         api_key=st.session_state.api_key,
                         aspect=aspect_ratio,
-                        style=style,
-                        visual_type=visual_type_param
+                        style=style
                     )
                     
                     if result and "imageUrl" in result:
