@@ -186,15 +186,97 @@ elif st.session_state.step == "prompt":
         st.subheader("Result")
         
         if st.session_state.job.get("final_image_url"):
-            st.markdown("**Image URL (for reference only):**")
+            st.markdown("**Image URL:**")
             st.code(st.session_state.job["final_image_url"], language=None)
+            
+            # Add direct download button (even if the automatic download failed)
+            st.markdown("### Direct Download")
+            st.write("If the automatic download didn't work, try using this direct download button:")
+            
+            if st.button("Download Image Directly"):
+                image_url = st.session_state.job["final_image_url"]
+                api_key = st.session_state.api_key
+                
+                with st.status("Downloading image...", expanded=True) as status:
+                    st.write(f"URL from response: {image_url}")
+                    
+                    # Extract request_id and file_id from the URL
+                    # URL format: https://api.napkin.ai/v1/visual/{request_id}/file/{file_id}
+                    try:
+                        # Parse the URL to extract request-id and file-id
+                        url_parts = image_url.split('/')
+                        if len(url_parts) >= 7:
+                            request_id = url_parts[5]  # Index 5 should be the request_id
+                            file_id = url_parts[7] if len(url_parts) >= 8 else url_parts[6]  # Get file_id from correct position
+                            
+                            # Remove any trailing parameters
+                            if '_c' in file_id:
+                                file_id = file_id.split('_c')[0] + '_c'
+                            
+                            st.write(f"Extracted request_id: {request_id}")
+                            st.write(f"Extracted file_id: {file_id}")
+                            
+                            # Use the exact format from the API documentation
+                            formatted_url = f"https://api.napkin.ai/v1/visual/{request_id}/file/{file_id}"
+                            st.write(f"Formatted URL: {formatted_url}")
+                            
+                            # Set up headers according to API docs
+                            headers = {
+                                'Accept': 'image/svg+xml, image/png, image/jpeg',  # Accept multiple formats
+                                'Authorization': f'Bearer {api_key}'
+                            }
+                            
+                            # Make the request exactly as shown in the docs
+                            st.write("Sending request with headers:")
+                            st.json(headers)
+                            
+                            response = requests.request("GET", formatted_url, headers=headers, data={})
+                            
+                            # Log the response details
+                            st.write(f"Response status code: {response.status_code}")
+                            st.write(f"Response content type: {response.headers.get('Content-Type', 'unknown')}")
+                            
+                            if response.status_code == 200:
+                                # Success! Now handle the image
+                                image_data = response.content
+                                
+                                # Create download button for the successfully retrieved image
+                                st.download_button(
+                                    label="✅ Save Image to Your Computer",
+                                    data=image_data,
+                                    file_name="napkin_image.png",
+                                    mime=response.headers.get('Content-Type', 'image/png'),
+                                    key="direct_download_success"
+                                )
+                                
+                                # Also display the image
+                                try:
+                                    image = Image.open(io.BytesIO(image_data))
+                                    st.image(image, caption="Successfully downloaded image", use_column_width=True)
+                                    st.session_state.job["image_bytes"] = image_data  # Store it in session state
+                                    status.update(label="✅ Download successful!", state="complete")
+                                except Exception as e:
+                                    st.error(f"Error displaying image: {e}")
+                                    status.update(label="⚠️ Downloaded but couldn't display", state="error")
+                            else:
+                                # Handle error
+                                st.error(f"Download failed with status code: {response.status_code}")
+                                if len(response.content) < 1000:  # If response is small enough, show it
+                                    st.code(response.content.decode('utf-8', errors='replace'))
+                                status.update(label="❌ Download failed", state="error")
+                        else:
+                            st.error("Could not parse URL correctly to extract request_id and file_id")
+                            status.update(label="❌ Download failed", state="error")
+                    except Exception as e:
+                        st.error(f"Error during download: {str(e)}")
+                        status.update(label="❌ Download failed", state="error")
         
         if st.session_state.job.get("image_bytes"):
             try:
                 image = Image.open(io.BytesIO(st.session_state.job["image_bytes"]))
                 st.image(image, caption="Generated Image", use_column_width=True)
                 
-                # Add download button
+                # Add download button for the automatically downloaded image
                 btn = st.download_button(
                     label="Download Image",
                     data=st.session_state.job["image_bytes"],
@@ -204,9 +286,9 @@ elif st.session_state.step == "prompt":
                 
             except Exception as e:
                 st.session_state.job["error"] = f"Could not display image: {e}"
-        elif st.session_state.job.get("id"):
+        elif st.session_state.job.get("id") and not st.session_state.job.get("final_image_url"):
             st.info("Once the job is complete, the image and link will appear here.")
-        else:
+        elif not st.session_state.job.get("id"):
             st.info("Submit a job on the left to see the result.")
 
         if st.session_state.job.get("error"):
