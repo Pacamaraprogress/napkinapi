@@ -10,28 +10,29 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Session State Initialization ---
+# Using a dictionary for our job state is cleaner
+if "job" not in st.session_state:
+    st.session_state.job = {
+        "id": None,
+        "status_message": None,
+        "final_image_url": None,
+        "image_bytes": None,
+        "last_api_response": None
+    }
 if "api_key" not in st.session_state:
     st.session_state.api_key = os.getenv("NAPKIN_API_KEY", "")
 if "step" not in st.session_state:
     st.session_state.step = "api_key"
-if "job_id" not in st.session_state:
-    st.session_state.job_id = None
-if "job_status_message" not in st.session_state:
-    st.session_state.job_status_message = None
-if "final_image_url" not in st.session_state:
-    st.session_state.final_image_url = None
-if "generated_image_bytes" not in st.session_state:
-    st.session_state.generated_image_bytes = None
-if "last_api_response" not in st.session_state:
-    st.session_state.last_api_response = None
+
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Napkin AI Visual Generator", page_icon="🖼️", layout="wide")
 st.title("🖼️ Napkin AI Visual Generator")
 
-# --- API Functions (Unchanged) ---
+# --- API Functions ---
 
 def start_image_generation_job(prompt_text, api_key, width, height, context_before=None, context_after=None):
+    """Submits the job and returns the server's response."""
     url = "https://api.napkin.ai/v1/visual"
     payload = {
         "content": prompt_text, "number_of_visuals": 1, "format": "png",
@@ -45,10 +46,11 @@ def start_image_generation_job(prompt_text, api_key, width, height, context_befo
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        st.error(f"API Error: {e}")
+        st.error(f"API Error on Job Submission: {e}")
         return None
 
 def get_job_status(job_id, api_key):
+    """Performs a single check of the job's status."""
     status_url = f"https://api.napkin.ai/v1/visual/{job_id}/status"
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
@@ -56,17 +58,17 @@ def get_job_status(job_id, api_key):
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
-        st.error(f"API Error checking status: {e}")
+        st.error(f"API Error Checking Status: {e}")
         return None
 
 def download_final_image(image_url):
+    """Downloads the final image from its URL."""
     try:
-        with st.spinner("Downloading final image..."):
-            response = requests.get(image_url, timeout=60)
-            response.raise_for_status()
+        response = requests.get(image_url, timeout=90) # Increased timeout for large images
+        response.raise_for_status()
         return response.content
     except requests.exceptions.RequestException as e:
-        st.error(f"Error downloading the final image: {str(e)}")
+        st.error(f"Download Error: {e}")
         return None
 
 # --- STREAMLIT UI LOGIC ---
@@ -93,71 +95,76 @@ elif st.session_state.step == "prompt":
         width = st.number_input("Width", 256, 2048, 1200, 64)
         height = st.number_input("Height", 256, 2048, 800, 64)
 
+        # --- Button to start the whole process ---
         if st.button("1. Submit Generation Job", type="primary"):
             if prompt and st.session_state.api_key:
                 with st.spinner("Submitting job to Napkin AI..."):
-                    # Clear out all old results
-                    for key in ["job_id", "job_status_message", "final_image_url", "generated_image_bytes", "last_api_response"]:
-                        st.session_state[key] = None
+                    # Clear previous job state
+                    st.session_state.job = {k: None for k in st.session_state.job}
                     response = start_image_generation_job(
                         prompt, st.session_state.api_key, width, height, context_before, context_after
                     )
                     if response and response.get("id"):
-                        st.session_state.job_id = response["id"]
-                        st.session_state.job_status_message = f"✅ Job submitted! Your Job ID is: {st.session_state.job_id}"
+                        st.session_state.job["id"] = response["id"]
+                        st.session_state.job["status_message"] = f"✅ Job submitted! Your Job ID is: {st.session_state.job['id']}"
                     else:
-                        st.session_state.job_status_message = "❌ Failed to submit job. Check API key and console for errors."
+                        st.session_state.job["status_message"] = "❌ Failed to submit job. Check API key and console for errors."
                 st.rerun()
             else:
                 st.error("Please provide a prompt and ensure your API key is set.")
 
-        if st.session_state.job_id:
-            st.info(st.session_state.job_status_message)
+        # --- Section for checking status ---
+        if st.session_state.job["id"]:
+            st.info(st.session_state.job["status_message"])
             if st.button("2. Check Status / Get Image"):
-                with st.spinner(f"Checking status for Job ID: {st.session_state.job_id}..."):
-                    status_data = get_job_status(st.session_state.job_id, st.session_state.api_key)
-                    st.session_state.last_api_response = status_data # Store the response for debugging
+                with st.spinner(f"Checking status for Job ID: {st.session_state.job['id']}..."):
+                    status_data = get_job_status(st.session_state.job['id'], st.session_state.api_key)
+                    st.session_state.job["last_api_response"] = status_data
 
                     if status_data:
                         job_status = status_data.get("status", "unknown")
-                        st.session_state.job_status_message = f"Job Status: '{job_status.capitalize()}'"
+                        st.session_state.job["status_message"] = f"Job Status: '{job_status.capitalize()}'"
                         
-                        # --- NEW ROBUST CHECKING LOGIC ---
+                        # The robust check for a completed job
                         if job_status.lower() == "complete":
-                            # Defensively check if the 'generated_files' key exists and is a non-empty list
+                            st.session_state.job["status_message"] = "✅ Job Complete! Found image data."
                             if "generated_files" in status_data and isinstance(status_data["generated_files"], list) and len(status_data["generated_files"]) > 0:
-                                # Defensively get the URL from the first item in the list
                                 image_url = status_data["generated_files"][0].get("url")
                                 if image_url:
-                                    st.balloons()
-                                    st.session_state.final_image_url = image_url
+                                    st.session_state.job["final_image_url"] = image_url
                                     image_bytes = download_final_image(image_url)
                                     if image_bytes:
-                                        st.session_state.generated_image_bytes = image_bytes
+                                        st.session_state.job["image_bytes"] = image_bytes
+                                        st.session_state.job["status_message"] = "✅ Download successful!"
+                                        st.balloons()
+                                    else:
+                                        st.session_state.job["status_message"] = "❌ Download failed. Please use the link on the right."
                                 else:
-                                    st.session_state.job_status_message = "❌ Error: Job is complete, but no URL was found in the response."
+                                    st.session_state.job["status_message"] = "❌ Error: Job complete, but no URL was found in the response."
                             else:
-                                st.session_state.job_status_message = "❌ Error: Job is complete, but the 'generated_files' data is missing or empty."
+                                st.session_state.job["status_message"] = "❌ Error: Job complete, but 'generated_files' data is missing."
                 st.rerun()
 
     with right_col:
         st.subheader("Result")
-        if st.session_state.final_image_url:
+        # Display the URL as soon as we have it
+        if st.session_state.job["final_image_url"]:
             st.markdown("**Image URL:**")
-            st.code(st.session_state.final_image_url, language=None)
+            st.code(st.session_state.job["final_image_url"], language=None)
         
-        if st.session_state.generated_image_bytes:
+        # Display the image if we have the bytes
+        if st.session_state.job["image_bytes"]:
             try:
-                image = Image.open(io.BytesIO(st.session_state.generated_image_bytes))
+                image = Image.open(io.BytesIO(st.session_state.job["image_bytes"]))
                 st.image(image, caption="Final Generated Image", use_column_width=True)
             except Exception as e:
                 st.error(f"Could not display image. Error: {e}")
-        elif st.session_state.job_id:
-            st.info("Once the job is complete, your image will appear here.")
+        elif st.session_state.job["id"]:
+            st.info("Once the job is complete, your image and link will appear here.")
         else:
             st.info("Submit a job to see the result.")
 
-        # --- NEW DEBUGGING OUTPUT ---
-        if st.session_state.last_api_response:
-            with st.expander("Last API Response from Server (for debugging)"):
-                st.json(st.session_state.last_api_response)
+        # Display the raw API response for debugging
+        if st.session_state.job["last_api_response"]:
+            with st.expander("Last Raw API Response from Server"):
+                st.json(st.session_state.job["last_api_response"])
