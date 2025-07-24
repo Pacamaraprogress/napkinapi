@@ -14,7 +14,6 @@ if "api_key" not in st.session_state:
     st.session_state.api_key = os.getenv("NAPKIN_API_KEY", "")
 if "step" not in st.session_state:
     st.session_state.step = "api_key"
-# --- NEW WORKFLOW STATE ---
 if "job_id" not in st.session_state:
     st.session_state.job_id = None
 if "job_status_message" not in st.session_state:
@@ -31,7 +30,6 @@ st.title("🖼️ Napkin AI Visual Generator")
 # --- API Functions ---
 
 def start_image_generation_job(prompt_text, api_key, width, height, context_before=None, context_after=None):
-    """Step 1: Submits the job and returns the response."""
     url = "https://api.napkin.ai/v1/visual"
     payload = {
         "content": prompt_text, "number_of_visuals": 1, "format": "png",
@@ -49,7 +47,6 @@ def start_image_generation_job(prompt_text, api_key, width, height, context_befo
         return None
 
 def get_job_status(job_id, api_key):
-    """Performs a SINGLE check of the job's status. No more loops."""
     status_url = f"https://api.napkin.ai/v1/visual/{job_id}/status"
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
@@ -61,7 +58,6 @@ def get_job_status(job_id, api_key):
         return None
 
 def download_final_image(image_url):
-    """Downloads the final image data."""
     try:
         with st.spinner("Downloading final image..."):
             response = requests.get(image_url, timeout=60)
@@ -74,7 +70,6 @@ def download_final_image(image_url):
 # --- STREAMLIT UI LOGIC ---
 
 if st.session_state.step == "api_key":
-    # UI for entering API Key
     st.write("Please enter your Napkin AI API key to get started.")
     api_key_input = st.text_input("Napkin AI API Key:", value=st.session_state.api_key, type="password")
     if st.button("Continue", type="primary"):
@@ -86,7 +81,6 @@ if st.session_state.step == "api_key":
             st.rerun()
 
 elif st.session_state.step == "prompt":
-    # Main UI for generating images
     left_col, right_col = st.columns([1, 1])
     with left_col:
         st.subheader("Visual Content")
@@ -97,16 +91,13 @@ elif st.session_state.step == "prompt":
         width = st.number_input("Width", 256, 2048, 1200, 64)
         height = st.number_input("Height", 256, 2048, 800, 64)
 
-        # --- NEW ASYNCHRONOUS WORKFLOW ---
         if st.button("1. Submit Generation Job", type="primary"):
             if prompt and st.session_state.api_key:
                 with st.spinner("Submitting job to Napkin AI..."):
-                    # Clear out old results
                     st.session_state.job_id = None
                     st.session_state.job_status_message = None
                     st.session_state.final_image_url = None
                     st.session_state.generated_image_bytes = None
-                    
                     response = start_image_generation_job(
                         prompt, st.session_state.api_key, width, height, context_before, context_after
                     )
@@ -127,7 +118,10 @@ elif st.session_state.step == "prompt":
                     if status_data:
                         job_status = status_data.get("status", "unknown")
                         st.session_state.job_status_message = f"Job Status: '{job_status.capitalize()}'"
-                        if job_status == "complete":
+                        
+                        # --- THE CRITICAL FIX IS HERE ---
+                        # Convert to lowercase to handle "complete" and "Completed"
+                        if job_status.lower() == "complete":
                             st.balloons()
                             image_url = status_data["generated_files"][0]["url"]
                             st.session_state.final_image_url = image_url
