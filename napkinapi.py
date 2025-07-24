@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-import time
 from PIL import Image
 import io
 import os
@@ -10,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # --- Session State Initialization ---
-# Using a dictionary for our job state is cleaner and avoids clutter
+# A clean dictionary to hold all job-related state
 if "job" not in st.session_state:
     st.session_state.job = {
         "id": None,
@@ -60,17 +59,20 @@ def get_job_status(job_id, api_key):
         st.error(f"API Error Checking Status: {e}")
         return None
 
-# --- CRITICAL FIX #1: This function now sends the Authorization header ---
 def download_final_image(image_url, api_key):
-    """Downloads the final image from its URL, providing authorization."""
+    """
+    Downloads the final image from its URL.
+    *** THIS IS THE CRITICAL FIX: It sends the Authorization header. ***
+    """
+    # The header is required to prove we are allowed to download the file.
     headers = {"Authorization": f"Bearer {api_key}"}
     try:
-        with st.spinner("Downloading final image (this may take a moment)..."):
-            response = requests.get(image_url, headers=headers, timeout=90)
-            response.raise_for_status()
+        # The script makes the request, not your browser.
+        response = requests.get(image_url, headers=headers, timeout=90)
+        response.raise_for_status()
         return response.content
     except requests.exceptions.RequestException as e:
-        st.error(f"Download Error: {e}")
+        st.error(f"Download Error: {e}. The server may have rejected the request.")
         return None
 
 # --- STREAMLIT UI LOGIC ---
@@ -108,7 +110,7 @@ elif st.session_state.step == "prompt":
                         st.session_state.job["id"] = response["id"]
                         st.session_state.job["status_message"] = f"✅ Job submitted! Your Job ID is: {st.session_state.job['id']}"
                     else:
-                        st.session_state.job["status_message"] = "❌ Failed to submit job. Check API key and console for errors."
+                        st.session_state.job["status_message"] = "❌ Failed to submit job."
                 st.rerun()
             else:
                 st.error("Please provide a prompt and ensure your API key is set.")
@@ -130,30 +132,27 @@ elif st.session_state.step == "prompt":
                                 image_url = status_data["generated_files"][0].get("url")
                                 if image_url:
                                     st.session_state.job["final_image_url"] = image_url
-                                    # --- CRITICAL FIX #1 (cont.): Pass the api_key to the download function ---
+                                    # We MUST pass the api_key here for the download to be authorized.
                                     image_bytes = download_final_image(image_url, st.session_state.api_key)
                                     if image_bytes:
                                         st.session_state.job["image_bytes"] = image_bytes
                                         st.session_state.job["status_message"] = "✅ Download successful!"
                                         st.balloons()
                                     else:
-                                        st.session_state.job["status_message"] = "❌ Download failed. Please use the link on the right."
+                                        st.session_state.job["status_message"] = "❌ Download failed. The app tried to download the image but failed. Please use the link."
                                 else:
                                     st.session_state.job["status_message"] = "❌ Error: Job complete, but no URL was found."
                             else:
                                 st.session_state.job["status_message"] = "❌ Error: Job complete, but 'generated_files' data is missing."
                 st.rerun()
 
-    # --- CRITICAL FIX #2: This whole section is re-structured to prevent syntax errors ---
     with right_col:
         st.subheader("Result")
         
-        # Display the URL as soon as we have it
         if st.session_state.job["final_image_url"]:
-            st.markdown("**Image URL:**")
+            st.markdown("**Image URL (for reference only, clicking will fail):**")
             st.code(st.session_state.job["final_image_url"], language=None)
         
-        # Display the image if we have the bytes
         if st.session_state.job["image_bytes"]:
             try:
                 image = Image.open(io.BytesIO(st.session_state.job["image_bytes"]))
@@ -161,11 +160,10 @@ elif st.session_state.step == "prompt":
             except Exception as e:
                 st.error(f"Could not display image. Error: {e}")
         elif st.session_state.job["id"]:
-            st.info("Once the job is complete, your image and link will appear here.")
+            st.info("Once the job is complete, the image will appear here.")
         else:
             st.info("Submit a job to see the result.")
 
-        # Display the raw API response for debugging
         if st.session_state.job["last_api_response"]:
             with st.expander("Last Raw API Response from Server"):
                 st.json(st.session_state.job["last_api_response"])
