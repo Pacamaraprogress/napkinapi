@@ -154,18 +154,67 @@ elif st.session_state.step == "prompt":
             # Extract the selected style's ID
             selected_style_index = style_names.index(selected_style_name)
             style = style_options[selected_style_index]["id"]
+            
+            # Additional API parameters
+            st.subheader("Additional Parameters")
+            
+            # Visual Type Hint
+            st.write("Optional: Guide the AI to generate a specific type of visual")
+            visual_type = st.selectbox(
+                "Visual Type Hint", 
+                options=[
+                    "None (Let AI decide)",
+                    "Chart/Graph",
+                    "Diagram",
+                    "Flowchart",
+                    "Mind Map",
+                    "Timeline",
+                    "Comparison",
+                    "Infographic",
+                    "Process"
+                ],
+                index=0
+            )
+            
+            # Add settings for background and color theme
+            col1, col2 = st.columns(2)
+            with col1:
+                background_color = st.color_picker("Background Color", "#FFFFFF")
+            with col2:
+                color_theme = st.selectbox(
+                    "Color Theme",
+                    options=[
+                        "Default",
+                        "Vibrant",
+                        "Pastel",
+                        "Monochrome",
+                        "Dark",
+                        "Light",
+                        "Corporate"
+                    ],
+                    index=0
+                )
         
         if st.button("Generate Image"):
             if not prompt:
                 st.error("Please enter a prompt for your image.")
             else:
                 with st.spinner("Generating your image..."):
-                    # Make API call
+                    # Get visual type setting
+                    visual_type_param = None if visual_type == "None (Let AI decide)" else visual_type
+                    
+                    # Get color theme setting
+                    color_theme_param = None if color_theme == "Default" else color_theme
+                    
+                    # Make API call with all parameters
                     result = generate_image(
                         prompt_text=prompt,
                         api_key=st.session_state.api_key,
                         aspect=aspect_ratio,
-                        style=style
+                        style=style,
+                        visual_type=visual_type_param,
+                        background_color=background_color,
+                        color_theme=color_theme_param
                     )
                     
                     if result and "imageUrl" in result:
