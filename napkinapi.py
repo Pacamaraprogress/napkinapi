@@ -1,251 +1,152 @@
 import streamlit as st
 import requests
 import time
-from PIL import Image
 import io
-import os
-from dotenv import load_dotenv
+from PIL import Image
 
-# Load environment variables from .env file (for local development)
-load_dotenv()
+st.set_page_config(page_title="Napkin AI - Minimal App", layout="wide")
+st.title("Napkin AI - Minimal App")
 
-# Initialize session state for multi-step flow
-if "step" not in st.session_state:
-    st.session_state.step = "api_key"  # First step: enter API key
-if "api_key" not in st.session_state:
-    st.session_state.api_key = os.getenv("NAPKIN_API_KEY", "")
-if "generated_image" not in st.session_state:
-    st.session_state.generated_image = None
-if "image_url" not in st.session_state:
-    st.session_state.image_url = ""
+# API Key input
+api_key = st.text_input("Enter your Napkin AI API Key:", type="password")
 
-st.set_page_config(
-    page_title="Napkin AI Image Generator",
-    page_icon="🖼️",
-    layout="wide"  # Use wide layout for side-by-side display
-)
+col1, col2 = st.columns(2)
 
-st.title("🖼️ Napkin AI Image Generator")
-
-# Function to call Napkin AI API
-def generate_image(prompt_text, api_key, aspect="512x512", style="Realistic"):
-    url = "https://api.napkin.ai/api/create-visual-request"
+with col1:
+    # Simple prompt input
+    prompt = st.text_area("Enter your prompt:", height=150)
     
-    payload = {
-        "prompt": prompt_text,
-        "aspectRatio": aspect,
-        "style_id": style  # Using style_id instead of style
-    }
-    
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    try:
-        response = requests.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        st.error(f"API Error: {str(e)}")
-        return None
-
-# Function to download image from URL
-def download_image(image_url):
-    try:
-        response = requests.get(image_url)
-        response.raise_for_status()
-        return response.content
-    except requests.exceptions.RequestException as e:
-        st.error(f"Error downloading image: {str(e)}")
-        return None
-
-# Step 1: API Key Entry
-if st.session_state.step == "api_key":
-    st.write("First, please enter your Napkin AI API key to get started.")
-    
-    api_key = st.text_input(
-        "Napkin AI API Key:", 
-        value=st.session_state.api_key,
-        type="password",
-        help="Enter your Napkin AI API key. This is required to generate images."
+    # Simple style selector
+    style = st.selectbox(
+        "Select Style:", 
+        [
+            "CDQPRVVJCSTPRBBCD5Q6AWR",  # Vibrant Strokes
+            "realistic",
+            "cinematic",
+            "anime",
+            "digital_art"
+        ],
+        index=0
     )
     
-    if st.button("Continue"):
+    # Dimensions
+    width = st.number_input("Width:", min_value=256, max_value=1024, value=512)
+    height = st.number_input("Height:", min_value=256, max_value=1024, value=512)
+    
+    # Generate button
+    if st.button("Generate Image"):
         if not api_key:
-            st.error("Please enter your Napkin AI API key to continue.")
+            st.error("Please enter your API key.")
+        elif not prompt:
+            st.error("Please enter a prompt.")
         else:
-            st.session_state.api_key = api_key
-            st.session_state.step = "prompt"
-            st.rerun()
-
-# Step 2: Prompt Entry and Image Generation
-elif st.session_state.step == "prompt":
-    # Set up two-column layout
-    left_col, right_col = st.columns([1, 1])
-    
-    with left_col:
-        st.subheader("Enter your prompt")
-        
-        prompt = st.text_area(
-            "Image prompt:", 
-            height=100,
-            placeholder="A vibrant cityscape at sunset with neon lights reflecting in puddles, cyberpunk style"
-        )
-        
-        # Advanced options in left column
-        with st.expander("Advanced Options"):
-            col1, col2 = st.columns(2)
-            with col1:
-                image_width = st.number_input("Width", min_value=256, max_value=1024, value=512, step=64)
-            with col2:
-                image_height = st.number_input("Height", min_value=256, max_value=1024, value=512, step=64)
-            
-            aspect_ratio = f"{image_width}x{image_height}"
-            
-            # Create style categories with IDs from Napkin AI documentation
-            style_categories = {
-                "Colorful Styles": [
-                    {"name": "Vibrant Strokes", "id": "CDQPRVVJCSTPRBBCD5Q6AWR", "description": "A flow of vivid lines for bold notes"},
-                    {"name": "Glowful Breeze", "id": "CDQPRVVJCSTPRBBKDXK78", "description": "A swirl of cheerful color for laid-back planning"},
-                    {"name": "Bold Canvas", "id": "CDQPRVVJCSTPRBB6DHGQ8", "description": "A vivid field of shapes for lively notes"},
-                    {"name": "Radiant Blocks", "id": "CDQPRVVJCSTPRBB6D5P6RSB4", "description": "A bright spread of solid color for tasks"},
-                    {"name": "Pragmatic Shades", "id": "CDQPRVVJCSTPRBB7E9GP8TB5DST0", "description": "A palette of blended hues for bold ideas"}
-                ],
-                "Casual Styles": [
-                    {"name": "Carefree Mist", "id": "CDGQ6XB1DGPQ6VV6EG", "description": "A wisp of calm tones for playful tasks"},
-                    {"name": "Lively Layers", "id": "CDGQ6XB1DGPPCTBCDHJP8", "description": "A breeze of soft color for bright ideas"}
-                ],
-                "Hand-drawn Styles": [
-                    {"name": "Artistic Flair", "id": "D1GPWS1DCDQPRVVJCSTPR", "description": "A splash of hand-drawn color for creative thinking"},
-                    {"name": "Sketch Notes", "id": "D1GPWS1DDHMPWSBK", "description": "A hand-drawn style for free-flowing ideas"}
-                ],
-                "Formal Styles": [
-                    {"name": "Elegant Outline", "id": "CSQQ4VB1DGPP4V31CDNJTVKFBXK6JV3C", "description": "A refined black outline for professional clarity"},
-                    {"name": "Subtle Accent", "id": "CSQQ4VB1DGPPRTB7D1T0", "description": "A light touch of color for professional documents"},
-                    {"name": "Monochrome Pro", "id": "CSQQ4VB1DGPQ6TBECXP6ABB3DXP6YWG", "description": "A single-color approach for focused presentations"},
-                    {"name": "Corporate Clean", "id": "CSQQ4VB1DGPPTVVEDXHPGWKFDNJJTSKCC5T0", "description": "A professional flat style for business diagrams"}
-                ],
-                "Monochrome Styles": [
-                    {"name": "Minimal Contrast", "id": "DNQPWVV3D1S6YVB55NK6RRBM", "description": "A clean monochrome style for focused work"},
-                    {"name": "Silver Beam", "id": "CXS62Y9DCSQP6XBK", "description": "A spotlight of gray scale ease with striking focus"}
-                ],
-                "Classic Art Styles": [
-                    {"name": "Realistic", "id": "realistic", "description": "Photo-realistic rendering with natural lighting and details"},
-                    {"name": "Cinematic", "id": "cinematic", "description": "Movie-like scenes with dramatic lighting and composition"},
-                    {"name": "Anime", "id": "anime", "description": "Japanese animation style with distinctive characters and vibrant colors"},
-                    {"name": "Digital Art", "id": "digital_art", "description": "Computer-generated artwork with sharp details and modern feel"},
-                    {"name": "Watercolor", "id": "watercolor", "description": "Soft, flowing colors with transparent, painterly effects"},
-                    {"name": "Oil Painting", "id": "oil_painting", "description": "Rich, textured paint with visible brushstrokes"},
-                    {"name": "Pixel Art", "id": "pixel_art", "description": "Retro, blocky style reminiscent of classic video games"}
-                ]
-            }
-            
-            # First, select the style category
-            style_category = st.selectbox("Style Category", options=list(style_categories.keys()))
-            
-            # Then, select the specific style from that category
-            style_options = style_categories[style_category]
-            style_index = 0
-            
-            # Create a formatted list of options with descriptions
-            style_names = [f"{s['name']} - {s['description']}" for s in style_options]
-            selected_style_name = st.selectbox("Style", options=style_names, index=style_index)
-            
-            # Extract the selected style's ID
-            selected_style_index = style_names.index(selected_style_name)
-            style = style_options[selected_style_index]["id"]
-            
-        # Debugging section
-        with st.expander("API Debugging"):
-            st.info("If you're having API issues, you can try different authorization formats here.")
-            auth_format = st.radio(
-                "Authorization Format",
-                ["Raw Key", "Bearer Token", "API Key Header"],
-                index=0,
-                help="Try different authorization formats if you're getting 401 Unauthorized errors"
-            )
-            
-            if auth_format == "Raw Key":
-                st.code("Authorization: YOUR_API_KEY")
-            elif auth_format == "Bearer Token":
-                st.code("Authorization: Bearer YOUR_API_KEY")
-            else:
-                st.code("X-API-Key: YOUR_API_KEY")
-                
-            st.session_state.auth_format = auth_format
-        
-        if st.button("Generate Image"):
-            if not prompt:
-                st.error("Please enter a prompt for your image.")
-            else:
-                with st.spinner("Generating your image..."):
-                    # Make API call with proper format
-                    result = generate_image(
-                        prompt_text=prompt,
-                        api_key=st.session_state.api_key,
-                        aspect=aspect_ratio,
-                        style=style
-                    )
+            with st.spinner("Generating image..."):
+                try:
+                    # Step 1: Submit request
+                    url = "https://api.napkin.ai/v1/visual"
                     
-                    if result and 'imageData' in result:
-                        # Display success message
-                        st.success("Image generated successfully!")
-                        
-                        # Display the image
-                        image = Image.open(io.BytesIO(result['imageData']))
-                        st.session_state.generated_image = result['imageData']
-                        st.session_state.image_url = result['imageUrl']
-                        st.session_state.api_response = result
-                        st.rerun()
+                    payload = {
+                        "format": "svg",
+                        "content": prompt,
+                        "language": "en-US",
+                        "style_id": style,
+                        "number_of_visuals": 1,
+                        "transparent_background": False,
+                        "inverted_color": False,
+                        "width": width,
+                        "height": height
+                    }
                     
-                    if result and "imageUrl" in result:
-                        # Get image from URL
-                        image_content = download_image(result["imageUrl"])
-                        
-                        if image_content:
-                            # Store image in session state
-                            st.session_state.generated_image = image_content
-                            st.session_state.image_url = result["imageUrl"]
-                            st.session_state.api_response = result
-                            st.rerun()
+                    headers = {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'Authorization': f'Bearer {api_key.strip()}'
+                    }
+                    
+                    st.write("Sending request to API...")
+                    response = requests.post(url, json=payload, headers=headers)
+                    
+                    if response.status_code != 200 and response.status_code != 201:
+                        st.error(f"API Error: {response.status_code} - {response.text}")
                     else:
-                        st.error("Failed to generate image. Please check your API key and try again.")
-        
-        # Option to change API key
-        if st.button("Change API Key"):
-            st.session_state.step = "api_key"
-            st.rerun()
-    
-    with right_col:
-        st.subheader("Generated Image")
-        
-        # Show generated image if available
-        if st.session_state.generated_image:
-            image = Image.open(io.BytesIO(st.session_state.generated_image))
-            st.image(image, caption="Generated Image", use_column_width=True)
-            
-            # Create download button
-            img_buffer = io.BytesIO()
-            image.save(img_buffer, format="PNG")
-            img_bytes = img_buffer.getvalue()
-            
-            st.download_button(
-                label="Download Image",
-                data=img_bytes,
-                file_name="napkin_ai_image.png",
-                mime="image/png"
-            )
-            
-            # Display the image URL
-            st.text_input("Image URL:", value=st.session_state.image_url)
-            
-            # Display JSON response for debugging
-            with st.expander("API Response Details"):
-                st.json(st.session_state.api_response)
-        else:
-            st.info("Your generated image will appear here. Enter a prompt on the left and click 'Generate Image'.")
+                        result = response.json()
+                        st.write("Initial request successful!")
+                        
+                        # Step 2: Check status
+                        if 'request_id' in result:
+                            request_id = result['request_id']
+                            st.write(f"Request ID: {request_id}")
+                            
+                            status_url = f"https://api.napkin.ai/v1/visual/{request_id}/status"
+                            status_headers = {
+                                'Accept': 'application/json',
+                                'Authorization': f'Bearer {api_key.strip()}'
+                            }
+                            
+                            file_id = None
+                            max_attempts = 10
+                            for attempt in range(max_attempts):
+                                st.write(f"Checking status (attempt {attempt+1}/{max_attempts})...")
+                                
+                                status_response = requests.get(status_url, headers=status_headers)
+                                if status_response.status_code != 200:
+                                    st.error(f"Status check error: {status_response.status_code} - {status_response.text}")
+                                    break
+                                
+                                status_data = status_response.json()
+                                st.write(f"Status: {status_data.get('status', 'unknown')}")
+                                
+                                if status_data.get('status') == 'completed':
+                                    files = status_data.get('files', [])
+                                    if files:
+                                        file_id = files[0].get('id')
+                                        st.write(f"File ID: {file_id}")
+                                        break
+                                    else:
+                                        st.error("No files found in completed status.")
+                                        break
+                                
+                                time.sleep(2)
+                            
+                            # Step 3: Get the image
+                            if file_id:
+                                image_url = f"https://api.napkin.ai/v1/visual/{request_id}/file/{file_id}"
+                                image_headers = {
+                                    'Accept': 'image/svg+xml',
+                                    'Authorization': f'Bearer {api_key.strip()}'
+                                }
+                                
+                                st.write("Fetching image...")
+                                image_response = requests.get(image_url, headers=image_headers)
+                                
+                                if image_response.status_code != 200:
+                                    st.error(f"Image fetch error: {image_response.status_code} - {image_response.text}")
+                                else:
+                                    st.session_state.image_data = image_response.content
+                                    st.session_state.image_url = image_url
+                                    st.success("Image generated successfully!")
+                            else:
+                                st.error("Failed to get file ID or image generation timed out.")
+                        else:
+                            st.error("No request ID in response.")
+                
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
 
-# Footer
-st.markdown("---")
-st.markdown("Made with ❤️ using Streamlit and Napkin AI")
+with col2:
+    st.subheader("Generated Image")
+    
+    if 'image_data' in st.session_state:
+        # For SVG images
+        svg_data = st.session_state.image_data.decode('utf-8')
+        st.components.v1.html(svg_data, height=500)
+        
+        # Download button
+        st.download_button(
+            label="Download SVG",
+            data=st.session_state.image_data,
+            file_name="napkin_ai_image.svg",
+            mime="image/svg+xml"
+        )
+    else:
+        st.info("Your generated image will appear here.")
