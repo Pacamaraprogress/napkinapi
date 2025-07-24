@@ -76,7 +76,7 @@ if st.session_state.step == "api_key":
         else:
             st.session_state.api_key = api_key
             st.session_state.step = "prompt"
-            st.experimental_rerun()
+            st.rerun()
 
 # Step 2: Prompt Entry and Image Generation
 elif st.session_state.step == "prompt":
@@ -203,18 +203,13 @@ elif st.session_state.step == "prompt":
                     # Get visual type setting
                     visual_type_param = None if visual_type == "None (Let AI decide)" else visual_type
                     
-                    # Get color theme setting
-                    color_theme_param = None if color_theme == "Default" else color_theme
-                    
-                    # Make API call with all parameters
+                    # Make API call with essential parameters
                     result = generate_image(
                         prompt_text=prompt,
                         api_key=st.session_state.api_key,
                         aspect=aspect_ratio,
                         style=style,
-                        visual_type=visual_type_param,
-                        background_color=background_color,
-                        color_theme=color_theme_param
+                        visual_type=visual_type_param
                     )
                     
                     if result and "imageUrl" in result:
@@ -226,14 +221,14 @@ elif st.session_state.step == "prompt":
                             st.session_state.generated_image = image_content
                             st.session_state.image_url = result["imageUrl"]
                             st.session_state.api_response = result
-                            st.experimental_rerun()
+                            st.rerun()
                     else:
                         st.error("Failed to generate image. Please check your API key and try again.")
         
         # Option to change API key
         if st.button("Change API Key"):
             st.session_state.step = "api_key"
-            st.experimental_rerun()
+            st.rerun()
     
     with right_col:
         st.subheader("Generated Image")
