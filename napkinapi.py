@@ -16,6 +16,9 @@ if "generated_image_bytes" not in st.session_state:
     st.session_state.generated_image_bytes = None
 if "step" not in st.session_state:
     st.session_state.step = "api_key"
+# **UX Improvement:** Add a state to track if we are currently generating an image
+if "generating" not in st.session_state:
+    st.session_state.generating = False
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -26,19 +29,16 @@ st.set_page_config(
 
 st.title("🖼️ Napkin AI Visual Generator")
 
-# --- API Functions ---
+# --- API Functions (These are unchanged) ---
 
 def start_image_generation_job(prompt_text, api_key, width, height):
-    """Step 1: Starts the image generation job."""
     url = "https://api.napkin.ai/v1/visual"
     payload = {
         "content": prompt_text, "number_of_visuals": 1, "format": "png",
         "width": width, "height": height, "language": "en-US",
         "transparent_background": True
     }
-    headers = {
-        "Authorization": f"Bearer {api_key}", "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     try:
         response = requests.post(url, json=payload, headers=headers)
         response.raise_for_status()
@@ -51,28 +51,19 @@ def start_image_generation_job(prompt_text, api_key, width, height):
         st.error(f"An unexpected error occurred: {e}")
         return None
 
-# --- THIS FUNCTION IS NOW CORRECTED ---
 def check_job_status(job_id, api_key):
-    """
-    Step 2: Polls the status using st.status, which can be updated.
-    """
     status_url = f"https://api.napkin.ai/v1/visual/{job_id}/status"
     headers = {"Authorization": f"Bearer {api_key}"}
     max_wait_time = 120
     start_time = time.time()
-
-    # Use st.status instead of st.spinner
-    with st.status(f"Job submitted (ID: {job_id})...", expanded=True) as status:
+    with st.status(f"✅ Request sent! Waiting for Napkin AI to start...", expanded=True) as status:
         while time.time() - start_time < max_wait_time:
             try:
                 response = requests.get(status_url, headers=headers)
                 response.raise_for_status()
                 status_data = response.json()
-                job_status = status_data.get("status")
-
-                # Update the status label - THIS IS THE CORRECT WAY
-                status.update(label=f"Job status: '{job_status}'... Please wait.")
-
+                job_status = status_data.get("status", "unknown")
+                status.update(label=f"AI Status: '{job_status.capitalize()}'... Please wait.")
                 if job_status == "complete":
                     status.update(label="Image generation complete!", state="complete", expanded=False)
                     return status_data
@@ -80,18 +71,14 @@ def check_job_status(job_id, api_key):
                     status.update(label="Image generation failed.", state="error")
                     st.json(status_data)
                     return None
-                
                 time.sleep(5)
-
             except requests.exceptions.RequestException as e:
                 status.update(label=f"API Error while checking status: {e}", state="error")
                 return None
-        
         status.update(label="Timeout: Image generation took too long.", state="error")
         return None
 
 def download_final_image(image_url):
-    """Step 3: Downloads the final image from its URL."""
     try:
         response = requests.get(image_url)
         response.raise_for_status()
@@ -124,7 +111,6 @@ elif st.session_state.step == "prompt":
             "Enter the content for the visual:", height=150,
             placeholder="A detailed description of the visual you want to create."
         )
-
         st.subheader("Image Dimensions")
         col1, col2 = st.columns(2)
         with col1:
@@ -132,12 +118,14 @@ elif st.session_state.step == "prompt":
         with col2:
             height = st.number_input("Height", 256, 2048, 800, 64)
 
-        if st.button("Generate Image", type="primary"):
+        # **UX Improvement:** Disable the button while generating
+        if st.button("Generate Image", type="primary", disabled=st.session_state.generating):
             if not prompt:
                 st.error("Please enter a prompt.")
             elif not st.session_state.api_key:
                 st.error("API Key is not set. Please go back and enter it.")
             else:
+                st.session_state.generating = True
                 initial_response = start_image_generation_job(prompt, st.session_state.api_key, width, height)
                 if initial_response and initial_response.get("id"):
                     job_id = initial_response["id"]
@@ -147,9 +135,11 @@ elif st.session_state.step == "prompt":
                         image_bytes = download_final_image(image_url)
                         if image_bytes:
                             st.session_state.generated_image_bytes = image_bytes
-                            st.rerun()
+                # **UX Improvement:** Reset the button state after the process finishes
+                st.session_state.generating = False
+                st.rerun()
 
-        if st.button("Change API Key"):
+        if st.button("Change API Key", disabled=st.session_state.generating):
             st.session_state.step = "api_key"
             st.rerun()
 
